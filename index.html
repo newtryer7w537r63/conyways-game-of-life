@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Conway's Game of Life</title>
+<style>
+  :root{
+    --bg:#0f1724;
+    --panel:#0b1220;
+    --accent:#8be9fd;
+    --muted:#9aa7b2;
+    --btn:#111827;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,Segoe UI,Roboto,Arial}
+  body{background:linear-gradient(180deg,var(--bg),#071023);color:#d7e7ef;display:flex;align-items:center;justify-content:center;padding:18px}
+  .wrap{width:100%;max-width:1100px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:18px;box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+  .top{display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button{background:var(--btn);border:1px solid rgba(255,255,255,0.03);color:var(--muted);padding:8px 12px;border-radius:8px;cursor:pointer}
+  button.primary{background:linear-gradient(90deg,var(--accent),#6ee7b7);color:#022; font-weight:600}
+  button:active{transform:translateY(1px)}
+  label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center}
+  input[type="range"]{appearance:none;height:6px;border-radius:6px;background:linear-gradient(90deg,#3a7,#49f);width:140px}
+  .meta{margin-left:auto;color:var(--muted);font-size:13px;display:flex;gap:12px;align-items:center}
+  .canvas-wrap{display:flex;gap:18px;align-items:flex-start}
+  canvas{background:#071124;border-radius:8px;cursor:crosshair}
+  .sidebar{width:260px;min-width:220px;align-self:flex-start}
+  .panel{background:rgba(255,255,255,0.02);padding:12px;border-radius:10px}
+  select,input[type=number]{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.03);color:inherit;padding:6px;border-radius:6px}
+  .small{font-size:13px;color:var(--muted)}
+  footer{margin-top:12px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="controls">
+      <button id="startBtn" class="primary">Start</button>
+      <button id="stepBtn">Step</button>
+      <button id="clearBtn">Clear</button>
+      <button id="randomBtn">Randomize</button>
+      <label class="small">Speed <input id="speed" type="range" min="1" max="30" value="8"></label>
+      <label class="small">Cell size <input id="cellSize" type="range" min="4" max="24" value="10"></label>
+      <label class="small">Wrap <input id="wrap" type="checkbox" checked></label>
+    </div>
+    <div class="meta">
+      <div class="small">Gen: <span id="gen">0</span></div>
+      <div class="small">Alive: <span id="alive">0</span></div>
+    </div>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="lifeCanvas" width="800" height="600"></canvas>
+
+    <div class="sidebar">
+      <div class="panel">
+        <div style="margin-bottom:8px"><strong>Grid / Presets</strong></div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <select id="preset">
+            <option value="">-- Preset patterns --</option>
+            <option value="glider">Glider</option>
+            <option value="lwss">Lightweight spaceship</option>
+            <option value="pulsar">Pulsar</option>
+            <option value="gosper">Gosper glider gun</option>
+            <option value="random">Random</option>
+          </select>
+          <button id="applyPreset">Apply</button>
+        </div>
+
+        <div style="margin-top:8px" class="small">
+          <label>Canvas width <input id="canvasW" type="number" value="800" min="200" max="2000"></label>
+          <label>Canvas height <input id="canvasH" type="number" value="600" min="200" max="2000"></label>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button id="resizeBtn">Resize</button>
+            <button id="fitBtn">Fit to window</button>
+          </div>
+        </div>
+
+        <hr style="margin:10px 0;border:none;border-top:1px solid rgba(255,255,255,0.03)">
+
+        <div class="small"><strong>How to use</strong>
+          <ul>
+            <li>Click canvas to toggle cells</li>
+            <li>Drag to paint (hold mouse button)</li>
+            <li>Use presets for classic patterns</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Conway's Game of Life — save file and open it locally to play.</footer>
+</div>
+
+<script>
+// Conway's Game of Life - single-file implementation
+
+const canvas = document.getElementById('lifeCanvas');
+const ctx = canvas.getContext('2d');
+
+const startBtn = document.getElementById('startBtn');
+const stepBtn = document.getElementById('stepBtn');
+const clearBtn = document.getElementById('clearBtn');
+const randomBtn = document.getElementById('randomBtn');
+const speedInput = document.getElementById('speed');
+const cellSizeInput = document.getElementById('cellSize');
+const genLabel = document.getElementById('gen');
+const aliveLabel = document.getElementById('alive');
+const wrapCheckbox = document.getElementById('wrap');
+const presetSelect = document.getElementById('preset');
+const applyPresetBtn = document.getElementById('applyPreset');
+const canvasW = document.getElementById('canvasW');
+const canvasH = document.getElementById('canvasH');
+const resizeBtn = document.getElementById('resizeBtn');
+const fitBtn = document.getElementById('fitBtn');
+
+let cellSize = Number(cellSizeInput.value);
+let cols = Math.floor(canvas.width / cellSize);
+let rows = Math.floor(canvas.height / cellSize);
+
+let grid, nextGrid;
+let running = false;
+let generation = 0;
+let aliveCount = 0;
+let speed = Number(speedInput.value);
+let lastStepTime = 0;
+let wrap = wrapCheckbox.checked;
+
+const dpr = Math.max(1, window.devicePixelRatio || 1);
+
+function initGrid(c, r){
+  cols = c; rows = r;
+  grid = new Uint8Array(cols * rows);
+  nextGrid = new Uint8Array(cols * rows);
+  generation = 0;
+  updateStats();
+}
+
+function index(x,y){ return y*cols + x; }
+function inBounds(x,y){ return x>=0 && x<cols && y>=0 && y<rows; }
+function getCell(x,y){
+  if (wrap){
+    x = (x + cols) % cols; y = (y + rows) % rows;
+    return grid[index(x,y)];
+  } else { if (!inBounds(x,y)) return 0; return grid[index(x,y)]; }
+}
+function setCell(x,y,val){ if (inBounds(x,y)) grid[index(x,y)] = val ? 1 : 0; }
+function countNeighbors(x,y){
+  let n=0; for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+    if(dx||dy) n+=getCell(x+dx,y+dy);
+  } return n;
+}
+
+function step(){
+  let alive=0;
+  for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+    const cur=grid[index(x,y)], n=countNeighbors(x,y);
+    const nxt = cur ? (n==2||n==3) : (n==3);
+    nextGrid[index(x,y)] = nxt; alive+=nxt;
+  }
+  [grid,nextGrid]=[nextGrid,grid];
+  generation++; aliveCount=alive;
+  updateStats(); draw();
+}
+
+function updateStats(){ genLabel.textContent=generation; aliveLabel.textContent=aliveCount; }
+function draw(){
+  canvas.width=Number(canvasW.value)*dpr; canvas.height=Number(canvasH.value)*dpr;
+  canvas.style.width=canvasW.value+'px'; canvas.style.height=canvasH.value+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  cols=Math.floor(Number(canvasW.value)/cellSize); rows=Math.floor(Number(canvasH.value)/cellSize);
+  if(!grid||grid.length!==cols*rows) initGrid(cols,rows);
+  ctx.clearRect(0,0,canvas.width/dpr,canvas.height/dpr);
+  ctx.fillStyle='#9be9ff'; const cs=cellSize; let alive=0;
+  for(let y=0;y<rows;y++) for(let x=0;x<cols;x++) if(grid[index(x,y)]){ctx.fillRect(x*cs,y*cs,cs,cs); alive++;}
+  aliveCount=alive; updateStats();
+  ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1;
+  for(let x=0;x<=cols;x++){ctx.beginPath();ctx.moveTo(x*cs+0.5,0);ctx.lineTo(x*cs+0.5,rows*cs);ctx.stroke();}
+  for(let y=0;y<=rows;y++){ctx.beginPath();ctx.moveTo(0,y*cs+0.5);ctx.lineTo(cols*cs,y*cs+0.5);ctx.stroke();}
+}
+
+let animId=null;
+function runLoop(timestamp){
+  if(!lastStepTime) lastStepTime=timestamp;
+  const interval=1000/Math.max(1,speed);
+  if(timestamp-lastStepTime>=interval){step();lastStepTime=timestamp;}
+  if(running) animId=requestAnimationFrame(runLoop);
+}
+
+startBtn.onclick=()=>{
+  running=!running;
+  if(running){startBtn.textContent='Pause';animId=requestAnimationFrame(runLoop);}
+  else{startBtn.textContent='Start';cancelAnimationFrame(animId);}
+};
+stepBtn.onclick=()=>{if(!running)step();};
+clearBtn.onclick=()=>{grid.fill(0);generation=0;aliveCount=0;draw();updateStats();};
+randomBtn.onclick=()=>{for(let i=0,c=0;i<grid.length;i++){grid[i]=Math.random()<0.28?1:0;if(grid[i])c++;}aliveCount=c;generation=0;draw();updateStats();};
+speedInput.oninput=e=>{speed=+e.target.value;};
+cellSizeInput.oninput=e=>{cellSize=+e.target.value;draw();};
+wrapCheckbox.onchange=e=>{wrap=e.target.checked;};
+resizeBtn.onclick=()=>{initGrid(Math.floor(canvasW.value/cellSize),Math.floor(canvasH.value/cellSize));draw();};
+fitBtn.onclick=()=>{canvasW.value=Math.max(200,Math.floor(window.innerWidth-420));canvasH.value=Math.max(200,Math.floor(window.innerHeight-160));resizeBtn.click();};
+
+let isMouseDown=false,paintMode=1;
+canvas.onmousedown=e=>{
+  isMouseDown=true;
+  const rect=canvas.getBoundingClientRect();
+  const x=Math.floor((e.clientX-rect.left)/(rect.width/canvasW.value)/cellSize);
+  const y=Math.floor((e.clientY-rect.top)/(rect.height/canvasH.value)/cellSize);
+  paintMode=getCell(x,y)?0:1; setCell(x,y,paintMode);draw();
+};
+document.onmouseup=()=>isMouseDown=false;
+canvas.onmousemove=e=>{
+  if(!isMouseDown)return;
+  const rect=canvas.getBoundingClientRect();
+  const x=Math.floor((e.clientX-rect.left)/(rect.width/canvasW.value)/cellSize);
+  const y=Math.floor((e.clientY-rect.top)/(rect.height/canvasH.value)/cellSize);
+  setCell(x,y,paintMode);draw();
+};
+
+applyPresetBtn.onclick=()=>{
+  const p=presetSelect.value, cx=Math.floor(cols/2), cy=Math.floor(rows/2);
+  grid.fill(0);
+  const drawPattern=coords=>coords.forEach(([dx,dy])=>setCell(cx+dx,cy+dy,1));
+  if(p==='glider')drawPattern([[1,0],[2,1],[0,2],[1,2],[2,2]]);
+  if(p==='lwss')drawPattern([[1,0],[4,0],[0,1],[0,2],[4,3],[1,3],[2,3],[3,3]]);
+  if(p==='pulsar')drawPattern([[-6,-4],[-5,-4],[-4,-4],[-2,-4],[-1,-4],[0,-4],[-6,-2],[-1,-2],[0,-2],[4,-2],[5,-2],[6,-2],[-4,-1],[-2,-1],[2,-1],[4,-1],[-4,1],[-2,1],[2,1],[4,1],[-6,2],[-1,2],[0,2],[4,2],[5,2],[6,2],[-6,4],[-5,4],[-4,4],[-2,4],[-1,4],[0,4]]);
+  if(p==='gosper')drawPattern([[0,4],[0,5],[1,4],[1,5],[10,4],[10,5],[10,6],[11,3],[11,7],[12,2],[12,8],[13,2],[13,8],[14,5],[15,3],[15,7],[16,4],[16,5],[16,6],[17,5],[20,2],[20,3],[20,4],[21,2],[21,3],[21,4],[22,1],[22,5],[24,0],[24,1],[24,5],[24,6],[34,2],[34,3],[35,2],[35,3]].map(([x,y])=>[x-10,y-2]));
+  if(p==='random'){for(let i=0,c=0;i<grid.length;i++){grid[i]=Math.random()<0.28?1:0;if(grid[i])c++;}aliveCount=c;generation=0;}
+  draw();updateStats();
+};
+
+canvasW.value=800;canvasH.value=600;initGrid(Math.floor(canvasW.value/cellSize),Math.floor(canvasH.value/cellSize));draw();
+document.onkeydown=e=>{
+  if(e.code==='Space'){e.preventDefault();startBtn.click();}
+  if(e.code==='KeyN')stepBtn.click();
+  if(e.code==='KeyC')clearBtn.click();
+  if(e.code==='KeyR')randomBtn.click();
+};
+</script>
+</body>
+</html>
